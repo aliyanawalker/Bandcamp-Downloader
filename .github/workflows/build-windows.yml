@@ -1,0 +1,43 @@
+name: Build portable Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "BandcampDownloader.py"
+      - "requirements.txt"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python for the build only
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Build one-file Windows application
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name bandcamp.downloader.v3 --collect-all yt_dlp --collect-all curl_cffi --collect-all certifi BandcampDownloader.py
+
+      - name: Upload portable EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandcamp-downloader-v3-windows
+          path: dist/bandcamp.downloader.v3.exe
+          if-no-files-found: error
+          retention-days: 14
