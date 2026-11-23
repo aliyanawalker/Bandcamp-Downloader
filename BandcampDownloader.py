@@ -17,7 +17,7 @@ except ImportError:
         pass
 
 APP_NAME = "Bandcamp Downloader"
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.0.1"
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".bandcamp_downloader")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 LOG_PATH = os.path.join(CONFIG_DIR, "bandcamp_downloader.log")
@@ -674,7 +674,11 @@ class BandcampDownloaderV3:
             "outtmpl": output_template,
             "quiet": True,
             "no_warnings": True,
-            "ignoreerrors": True,
+            # Do not silently skip extraction/download failures.
+            "ignoreerrors": False,
+            # Bandcamp challenge responses have recently been reported to work
+            # with Firefox impersonation. requirements.txt installs curl-cffi.
+            "impersonate": "firefox",
             "progress_hooks": [progress_hook],
             "logger": YtdlpLogger(self.logger)
         }
@@ -749,11 +753,29 @@ class BandcampDownloaderV3:
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-            title = url
-            if info:
-                title = info.get("title") or info.get("album") or url
+
+            # Never report a missing extraction result as a successful download.
+            if not isinstance(info, dict):
+                raise DownloadError(
+                    "yt-dlp returned no media information; the item was not downloaded."
+                )
+
+            # Bandcamp album URLs normally return a playlist. Reject an empty
+            # track list instead of recording a false success.
+            if info.get("_type") == "playlist":
+                entries = info.get("entries")
+                if entries is None:
+                    raise DownloadError(
+                        "Bandcamp returned an album without a track list."
+                    )
+                if not any(entry for entry in entries):
+                    raise DownloadError(
+                        "Bandcamp returned an empty track list; nothing was downloaded."
+                    )
+
+            title = info.get("title") or info.get("album") or url
             item["title"] = title
-            self.logger.info("Completed download: %s", title)
+            self.logger.info("Download completed successfully: %s", title)
             return "complete", title
         except DownloadCancelled:
             self.logger.info("Download cancelled: %s", url)
